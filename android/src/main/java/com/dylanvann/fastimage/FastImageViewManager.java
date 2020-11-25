@@ -5,6 +5,7 @@ import android.content.Context;
 import android.content.ContextWrapper;
 import android.graphics.PorterDuff;
 import android.os.Build;
+import android.util.Log;
 
 import androidx.annotation.NonNull;
 
@@ -40,10 +41,9 @@ class FastImageViewManager extends SimpleViewManager<FastImageViewWithUrl> imple
     private static final String REACT_ON_LOAD_START_EVENT = "onFastImageLoadStart";
     private static final String REACT_ON_PROGRESS_EVENT = "onFastImageProgress";
     private static final Map<String, List<FastImageViewWithUrl>> VIEWS_FOR_URLS = new WeakHashMap<>();
+    private static final Map<String, ReadableMap> SOURCES_FOR_URLS = new WeakHashMap<>();
 
     private static final int FORCE_REFRESH_IMAGE = 1;
-
-    private @Nullable ReadableMap _source;
 
     @Nullable
     private RequestManager requestManager = null;
@@ -64,8 +64,6 @@ class FastImageViewManager extends SimpleViewManager<FastImageViewWithUrl> imple
 
     @ReactProp(name = "source")
     public void setSrc(FastImageViewWithUrl view, @Nullable ReadableMap source) {
-        this._source = source;
-
         if (source == null || !source.hasKey("uri") || isNullOrEmpty(source.getString("uri"))) {
             // Cancel existing requests.
             if (requestManager != null) {
@@ -102,6 +100,7 @@ class FastImageViewManager extends SimpleViewManager<FastImageViewWithUrl> imple
         } else if (viewsForKey == null) {
             List<FastImageViewWithUrl> newViewsForKeys = new ArrayList<>(Collections.singletonList(view));
             VIEWS_FOR_URLS.put(key, newViewsForKeys);
+            SOURCES_FOR_URLS.put(key, source);
         }
 
         ThemedReactContext context = (ThemedReactContext) view.getContext();
@@ -152,7 +151,10 @@ class FastImageViewManager extends SimpleViewManager<FastImageViewWithUrl> imple
             List<FastImageViewWithUrl> viewsForKey = VIEWS_FOR_URLS.get(key);
             if (viewsForKey != null) {
                 viewsForKey.remove(view);
-                if (viewsForKey.size() == 0) VIEWS_FOR_URLS.remove(key);
+                if (viewsForKey.size() == 0) {
+                    VIEWS_FOR_URLS.remove(key);
+                    SOURCES_FOR_URLS.remove(key);
+                }
             }
         }
 
@@ -249,18 +251,20 @@ class FastImageViewManager extends SimpleViewManager<FastImageViewWithUrl> imple
 
     @Override
     public void receiveCommand(FastImageViewWithUrl root, int commandId, @Nullable ReadableArray args) {
-        switch (commandId) {
-            case FORCE_REFRESH_IMAGE: {
-                if (this._source != null) {
-                    load(root, this._source);
+        if (commandId == FORCE_REFRESH_IMAGE) {
+            ReadableMap source = SOURCES_FOR_URLS.get(root.glideUrl.toStringUrl());
+            if (source != null) {
+                load(root, source);
+            } else {
+                if (BuildConfig.DEBUG) {
+                    Log.e(FastImageViewManager.class.getSimpleName(), "Can't refresh image as source is null!");
                 }
-                return;
             }
-            default:
-                throw new IllegalArgumentException(String.format(
-                        "Unsupported command %s received by %s.",
-                        commandId,
-                        root.getClass().getSimpleName()));
+            return;
         }
+        throw new IllegalArgumentException(String.format(
+                "Unsupported command %s received by %s.",
+                commandId,
+                root.getClass().getSimpleName()));
     }
 }
